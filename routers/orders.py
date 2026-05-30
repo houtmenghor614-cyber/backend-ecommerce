@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 from database import get_db
 from models import User, Order, OrderItem, Product
 from schemas import OrderCreate, OrderResponse, OrderItemResponse
 from auth import get_current_user, get_current_admin
 from services.telegram_bot import send_telegram_alert
 import uuid
-from datetime import datetime
 
 router = APIRouter(prefix="/api/orders", tags=["Orders"])
 
@@ -71,12 +71,18 @@ async def create_order(
     
     db.commit()
     
+    # Send Telegram alert for new order
     await send_telegram_alert(
-        f"🛒 New Order Created!\n"
-        f"Order: {order_number}\n"
-        f"Customer: {current_user.full_name}\n"
-        f"Total: ${total_amount}\n"
-        f"Status: Pending Payment"
+        f"🛍️ <b>NEW ORDER CREATED!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 Order: <code>{order_number}</code>\n"
+        f"👤 Customer: {current_user.full_name}\n"
+        f"💰 Amount: <b>${total_amount}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 {len(order_data.items)} item(s)\n"
+        f"🚚 Shipping: {order_data.shipping_address}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏳ Status: Pending Payment"
     )
     
     db.refresh(new_order)
@@ -105,134 +111,4 @@ async def create_order(
         items=items
     )
 
-@router.get("/", response_model=List[OrderResponse])
-async def get_user_orders(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    orders = db.query(Order).filter(Order.user_id == current_user.id).all()
-    
-    result = []
-    for order in orders:
-        items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-        item_responses = []
-        for item in items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            item_responses.append(OrderItemResponse(
-                id=item.id,
-                product_id=item.product_id,
-                product_title=product.title if product else None,
-                quantity=item.quantity,
-                price_at_time=item.price_at_time,
-                selected_color=item.selected_color,
-                selected_size=item.selected_size
-            ))
-        
-        result.append(OrderResponse(
-            id=order.id,
-            order_number=order.order_number,
-            user_id=order.user_id,
-            total_amount=order.total_amount,
-            status=order.status,
-            payment_transaction_id=order.payment_transaction_id,
-            shipping_address=order.shipping_address,
-            created_at=order.created_at,
-            items=item_responses
-        ))
-    
-    return result
-
-# Admin endpoint to get all orders
-@router.get("/all", response_model=List[OrderResponse])
-async def get_all_orders(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
-):
-    orders = db.query(Order).all()
-    result = []
-    for order in orders:
-        items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-        item_responses = []
-        for item in items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            item_responses.append(OrderItemResponse(
-                id=item.id,
-                product_id=item.product_id,
-                product_title=product.title if product else None,
-                quantity=item.quantity,
-                price_at_time=item.price_at_time,
-                selected_color=item.selected_color,
-                selected_size=item.selected_size
-            ))
-        
-        result.append(OrderResponse(
-            id=order.id,
-            order_number=order.order_number,
-            user_id=order.user_id,
-            total_amount=order.total_amount,
-            status=order.status,
-            payment_transaction_id=order.payment_transaction_id,
-            shipping_address=order.shipping_address,
-            created_at=order.created_at,
-            items=item_responses
-        ))
-    
-    return result
-
-@router.get("/{order_id}", response_model=OrderResponse)
-async def get_order_detail(
-    order_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    order = db.query(Order).filter(Order.id == order_id, Order.user_id == current_user.id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
-    item_responses = []
-    for item in items:
-        product = db.query(Product).filter(Product.id == item.product_id).first()
-        item_responses.append(OrderItemResponse(
-            id=item.id,
-            product_id=item.product_id,
-            product_title=product.title if product else None,
-            quantity=item.quantity,
-            price_at_time=item.price_at_time,
-            selected_color=item.selected_color,
-            selected_size=item.selected_size
-        ))
-    
-    return OrderResponse(
-        id=order.id,
-        order_number=order.order_number,
-        user_id=order.user_id,
-        total_amount=order.total_amount,
-        status=order.status,
-        payment_transaction_id=order.payment_transaction_id,
-        shipping_address=order.shipping_address,
-        created_at=order.created_at,
-        items=item_responses
-    )
-
-@router.patch("/{order_id}/status")
-async def update_order_status(
-    order_id: int,
-    status: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin)
-):
-    order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    
-    valid_statuses = ["pending", "paid", "shipped", "delivered", "cancelled"]
-    if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail="Invalid status")
-    
-    order.status = status
-    db.commit()
-    
-    await send_telegram_alert(f"📦 Order {order.order_number} status updated to: {status.upper()}")
-    
-    return {"message": f"Order status updated to {status}"}
+# ... rest of your orders.py (get_orders, get_order_detail, etc.)

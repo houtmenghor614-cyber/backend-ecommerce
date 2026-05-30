@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from datetime import datetime
 from database import get_db
 from models import User
 from schemas import UserRegister, UserLogin, UserResponse
@@ -11,14 +12,17 @@ router = APIRouter(prefix="/api/users", tags=["Users"])
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_data: UserRegister, db: Session = Depends(get_db)):
+    # Check if email already exists
     existing_email = db.query(User).filter(User.email == user_data.email).first()
     if existing_email:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # Check if phone already exists
     existing_phone = db.query(User).filter(User.phone_number == user_data.phone_number).first()
     if existing_phone:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
+    # Create new user
     new_user = User(
         full_name=user_data.full_name,
         gender=user_data.gender,
@@ -32,13 +36,22 @@ async def register(user_data: UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
     
-    await send_telegram_alert(f"🆕 New user registered: {new_user.full_name} ({new_user.email})")
+    # Send Telegram alert for new user
+    await send_telegram_alert(
+        f"🆕 <b>NEW USER REGISTERED!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 Name: {new_user.full_name}\n"
+        f"📧 Email: {new_user.email}\n"
+        f"📞 Phone: {new_user.phone_number}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🕐 Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
     
     return new_user
 
 @router.post("/login")
 async def login(user_data: UserLogin, db: Session = Depends(get_db)):
-    print(f"Login attempt for: {user_data.email}")  # Debug
+    print(f"Login attempt for: {user_data.email}")
     
     user = db.query(User).filter(User.email == user_data.email).first()
     

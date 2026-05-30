@@ -27,21 +27,22 @@ async def initiate_payment(
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="Order cannot be paid")
     
-    # Create KHQR payment session
     payment_url = khqr_payment.create_payment_session(
         transaction_id=order.order_number,
         amount=order.total_amount,
         remark=f"Order #{order.order_number}"
     )
     
-    # Send Telegram notification that payment initiated
+    # Send Telegram notification
     await send_telegram_alert(
-        f"💳 Payment Initiated!\n"
-        f"Order: {order.order_number}\n"
-        f"Customer: {current_user.full_name}\n"
-        f"Email: {current_user.email}\n"
-        f"Amount: ${order.total_amount}\n"
-        f"Status: Waiting for payment"
+        f"💳 <b>PAYMENT INITIATED</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 Order: <code>{order.order_number}</code>\n"
+        f"👤 Customer: {current_user.full_name}\n"
+        f"📧 Email: {current_user.email}\n"
+        f"💰 Amount: <b>${order.total_amount}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⏳ Waiting for payment confirmation..."
     )
     
     return PaymentResponse(
@@ -73,16 +74,15 @@ async def verify_payment(
             
             # Send Telegram alert for successful payment
             await send_telegram_alert(
-                f"✅✅✅ PAYMENT SUCCESSFUL! ✅✅✅\n"
+                f"✅✅✅ <b>PAYMENT SUCCESSFUL!</b> ✅✅✅\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📦 Order: {order.order_number}\n"
+                f"📦 Order: <code>{order.order_number}</code>\n"
                 f"👤 Customer: {user.full_name if user else 'N/A'}\n"
                 f"📧 Email: {user.email if user else 'N/A'}\n"
-                f"💰 Amount: ${data.get('amount')}\n"
-                f"🆔 Transaction ID: {data.get('transaction_id')}\n"
-                f"📅 Date: {data.get('payment_date', 'N/A')}\n"
+                f"💰 Amount: <b>${data.get('amount')}</b>\n"
+                f"🆔 Transaction: <code>{data.get('transaction_id')}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🎉 Order has been confirmed and will be processed!"
+                f"🎉 Order confirmed! Will be processed soon."
             )
             
             return {
@@ -120,15 +120,13 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
                 
                 user = db.query(User).filter(User.id == order.user_id).first()
                 
-                # Send Telegram alert via webhook
                 await send_telegram_alert(
-                    f"💰💰💰 WEBHOOK PAYMENT RECEIVED! 💰💰💰\n"
+                    f"💰💰💰 <b>WEBHOOK PAYMENT RECEIVED!</b> 💰💰💰\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📦 Order: {order.order_number}\n"
+                    f"📦 Order: <code>{order.order_number}</code>\n"
                     f"👤 Customer: {user.full_name if user else 'N/A'}\n"
-                    f"📧 Email: {user.email if user else 'N/A'}\n"
-                    f"💰 Amount: ${amount}\n"
-                    f"🆔 Transaction: {transaction_id}\n"
+                    f"💰 Amount: <b>${amount}</b>\n"
+                    f"🆔 Transaction: <code>{transaction_id}</code>\n"
                     f"━━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"✨ Payment confirmed via Webhook!"
                 )
