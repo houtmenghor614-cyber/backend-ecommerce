@@ -167,7 +167,7 @@ KHQR_PROFILE_ID = "jFgWVkp58ZCTEbaKR6LFR83JulZcRerX"
 KHQR_SECRET_KEY = "NktIhFGa3aCZTUzSlCBXo2tU1VmCmLDP"
 KHQR_GATEWAY_URL = "https://khqr.cc/api/payment/request"
 KHQR_VERIFY_URL = f"https://khqr.cc/api/{KHQR_PROFILE_ID}/payment-gateway/v1/payments/check-trans"
-KHQR_SUCCESS_URL = "http://localhost:3000/payment/success"
+KHQR_SUCCESS_URL = "https://ecommerce-clothes-theta.vercel.app/"
 
 def create_khqr_payment(transaction_id: str, amount: float, remark: str = ""):
     raw_string = f"{KHQR_SECRET_KEY}{transaction_id}{amount}{KHQR_SUCCESS_URL}{remark}"
