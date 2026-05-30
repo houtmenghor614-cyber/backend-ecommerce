@@ -6,8 +6,8 @@ load_dotenv()
 class Config:
     SECRET_KEY = os.getenv("SECRET_KEY", "your_secret_key_change_this_in_production")
     DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./backup/file.db")
-    TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+    TELEGRAM_BOT_TOKEN = os.getenv("8858171591:AAG8dXI4vglgzoIJM6pruFxaMN6FUTa4E_I")
+    TELEGRAM_CHAT_ID = os.getenv("5724123597")
     UPLOAD_DIR = "uploads/products"
     
     # KHQR Payment

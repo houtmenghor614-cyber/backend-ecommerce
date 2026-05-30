@@ -34,6 +34,16 @@ async def initiate_payment(
         remark=f"Order #{order.order_number}"
     )
     
+    # Send Telegram notification that payment initiated
+    await send_telegram_alert(
+        f"💳 Payment Initiated!\n"
+        f"Order: {order.order_number}\n"
+        f"Customer: {current_user.full_name}\n"
+        f"Email: {current_user.email}\n"
+        f"Amount: ${order.total_amount}\n"
+        f"Status: Waiting for payment"
+    )
+    
     return PaymentResponse(
         payment_url=payment_url,
         order_id=order.id,
@@ -60,12 +70,19 @@ async def verify_payment(
             db.commit()
             
             user = db.query(User).filter(User.id == order.user_id).first()
+            
+            # Send Telegram alert for successful payment
             await send_telegram_alert(
-                f"✅ Payment Successful!\n"
-                f"Order: {order.order_number}\n"
-                f"Customer: {user.full_name if user else 'N/A'}\n"
-                f"Amount: ${data.get('amount')}\n"
-                f"Transaction ID: {data.get('transaction_id')}"
+                f"✅✅✅ PAYMENT SUCCESSFUL! ✅✅✅\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"📦 Order: {order.order_number}\n"
+                f"👤 Customer: {user.full_name if user else 'N/A'}\n"
+                f"📧 Email: {user.email if user else 'N/A'}\n"
+                f"💰 Amount: ${data.get('amount')}\n"
+                f"🆔 Transaction ID: {data.get('transaction_id')}\n"
+                f"📅 Date: {data.get('payment_date', 'N/A')}\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎉 Order has been confirmed and will be processed!"
             )
             
             return {
@@ -89,6 +106,8 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
         status = data.get("status")
         amount = data.get("amount")
         
+        print(f"🔔 Webhook received: {data}")
+        
         if status == "success" and transaction_id:
             order = db.query(Order).filter(
                 Order.order_number == transaction_id
@@ -100,15 +119,23 @@ async def payment_webhook(request: Request, db: Session = Depends(get_db)):
                 db.commit()
                 
                 user = db.query(User).filter(User.id == order.user_id).first()
-                await send_telegram_alert(
-                    f"💰 Payment Received via Webhook!\n"
-                    f"Order: {order.order_number}\n"
-                    f"Customer: {user.full_name if user else 'N/A'}\n"
-                    f"Amount: ${amount}"
-                )
                 
+                # Send Telegram alert via webhook
+                await send_telegram_alert(
+                    f"💰💰💰 WEBHOOK PAYMENT RECEIVED! 💰💰💰\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📦 Order: {order.order_number}\n"
+                    f"👤 Customer: {user.full_name if user else 'N/A'}\n"
+                    f"📧 Email: {user.email if user else 'N/A'}\n"
+                    f"💰 Amount: ${amount}\n"
+                    f"🆔 Transaction: {transaction_id}\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"✨ Payment confirmed via Webhook!"
+                )
+
                 return {"status": "success", "message": "Order updated"}
         
         return {"status": "pending", "message": "No action taken"}
     except Exception as e:
+        print(f"Webhook error: {e}")
         return {"status": "error", "message": str(e)}
