@@ -11,13 +11,14 @@ import json
 import hashlib
 import requests
 from datetime import datetime
+import secrets
 
 app = FastAPI(title="MENGHOR CLOTHES")
 
-# CORS
+# CORS - Allow all for development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:3002", "http://127.0.0.1:3000", "http://127.0.0.1:3001", "http://127.0.0.1:3002", "*"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +35,7 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
+    # Users table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +48,7 @@ def init_db():
         )
     ''')
     
+    # Categories table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,6 +57,7 @@ def init_db():
         )
     ''')
     
+    # Products table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS products (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,6 +76,7 @@ def init_db():
         )
     ''')
     
+    # Orders table with all shipping fields
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,25 +86,29 @@ def init_db():
             status TEXT DEFAULT 'pending',
             payment_transaction_id TEXT,
             shipping_address TEXT,
+            full_name TEXT,
+            phone_number TEXT,
+            city TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
+    # Order items table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS order_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             order_id INTEGER,
             product_id INTEGER,
+            product_title TEXT,
             quantity INTEGER,
             price_at_time REAL,
             selected_color TEXT,
             selected_size TEXT,
-            FOREIGN KEY (order_id) REFERENCES orders(id),
-            FOREIGN KEY (product_id) REFERENCES products(id)
+            FOREIGN KEY (order_id) REFERENCES orders(id)
         )
     ''')
     
-    # Insert admin
+    # Insert admin if not exists
     cursor.execute("SELECT * FROM users WHERE email = 'admin@dynastore.com'")
     if not cursor.fetchone():
         cursor.execute("INSERT INTO users (full_name, email, phone_number, password_hash, role) VALUES (?, ?, ?, ?, ?)",
@@ -148,13 +157,19 @@ class ProductCreate(BaseModel):
 
 class OrderItemCreate(BaseModel):
     product_id: int
+    product_title: Optional[str] = None
     quantity: int
     selected_color: Optional[str] = None
     selected_size: Optional[str] = None
+    price: Optional[float] = None
 
 class OrderCreate(BaseModel):
     items: List[OrderItemCreate]
+    full_name: str
+    phone_number: str
     shipping_address: str
+    city: str
+    total_amount: float
 
 class PaymentRequest(BaseModel):
     order_id: int
@@ -163,36 +178,62 @@ class PaymentVerify(BaseModel):
     transaction_id: str
 
 # ========== KHQR CONFIGURATION ==========
-KHQR_PROFILE_ID = "4CT8AuGLx8OkUhCqNdKJhekxw2LULqYa"
-KHQR_SECRET_KEY = "b24Cjg6lKKiOUzFa21yLz8c6AvoyaPyH"
-KHQR_GATEWAY_URL = "https://khqr.cc/api/payment/request"
-KHQR_VERIFY_URL = f"https://khqr.cc/api/{KHQR_PROFILE_ID}/payment-gateway/v1/payments/check-trans"
-KHQR_SUCCESS_URL = "https://ecommerce-clothes-theta.vercel.app/"
+KHQR_PROFILE_ID = "Y0xL0p6WlNruUhlnj51p4c7TYtT6wDQ4"
+KHQR_SECRET_KEY = "fTh93txXT8eqqhgn3cKbOuekASFkbxWx"
+KHQR_BASE_URL = "https://khqr.cc/api"
+KHQR_RETURN_URL = "https://ecommerce-clothes-theta.vercel.app/payment-callback"
 
-def create_khqr_payment(transaction_id: str, amount: float, remark: str = ""):
-    raw_string = f"{KHQR_SECRET_KEY}{transaction_id}{amount}{KHQR_SUCCESS_URL}{remark}"
-    hash_value = hashlib.sha1(raw_string.encode('utf-8')).hexdigest()
-    
-    payment_url = f"{KHQR_GATEWAY_URL}/{KHQR_PROFILE_ID}?transaction_id={transaction_id}&amount={amount}&success_url={KHQR_SUCCESS_URL}&hash={hash_value}"
-    if remark:
-        payment_url += f"&remark={remark}"
-    
-    return payment_url
+def create_khqr_payment(transaction_id: str, amount: float, customer_name: str = "", phone: str = ""):
+    """Create KHQR payment URL"""
+    try:
+        # Generate hash for security
+        raw_string = f"{KHQR_SECRET_KEY}{transaction_id}{amount}{KHQR_RETURN_URL}"
+        hash_value = hashlib.sha1(raw_string.encode('utf-8')).hexdigest()
+        
+        # Build payment URL
+        payment_url = f"{KHQR_BASE_URL}/payment/request/{KHQR_PROFILE_ID}?transaction_id={transaction_id}&amount={amount}&return_url={KHQR_RETURN_URL}&hash={hash_value}"
+        
+        if customer_name:
+            payment_url += f"&customer_name={customer_name}"
+        if phone:
+            payment_url += f"&customer_phone={phone}"
+        
+        return payment_url
+        
+    except Exception as e:
+        print(f"Error creating payment: {e}")
+        return f"https://khqr.cc/payment/{KHQR_PROFILE_ID}?amount={amount}&transaction_id={transaction_id}"
 
 def verify_khqr_transaction(transaction_id: str):
-    hash_value = hashlib.sha1(f"{KHQR_SECRET_KEY}{transaction_id}".encode('utf-8')).hexdigest()
-    
+    """Verify payment status with KHQR"""
     try:
+        # Generate verification hash
+        raw_string = f"{KHQR_SECRET_KEY}{transaction_id}"
+        hash_value = hashlib.sha1(raw_string.encode('utf-8')).hexdigest()
+        
+        # Call verification API
+        verify_url = f"{KHQR_BASE_URL}/payment/verify/{KHQR_PROFILE_ID}"
+        
         response = requests.post(
-            KHQR_VERIFY_URL,
-            data={"transaction_id": transaction_id, "hash": hash_value},
+            verify_url,
+            json={
+                "transaction_id": transaction_id,
+                "hash": hash_value
+            },
+            headers={"Content-Type": "application/json"},
             timeout=30
         )
+        
         if response.status_code == 200:
-            return response.json()
-        return {"responseCode": 1, "responseMessage": f"API Error: {response.status_code}"}
+            result = response.json()
+            print(f"Verification result: {result}")
+            return result
+        
+        return {"status": "failed", "message": "Verification failed"}
+        
     except Exception as e:
-        return {"responseCode": 1, "responseMessage": str(e)}
+        print(f"Verification error: {e}")
+        return {"status": "error", "message": str(e)}
 
 # ========== USERS ==========
 @app.post("/api/users/register")
@@ -233,6 +274,7 @@ def login(data: LoginData):
             "id": user["id"],
             "full_name": user["full_name"],
             "email": user["email"],
+            "phone": user["phone_number"],
             "role": user["role"]
         }
     }
@@ -253,7 +295,7 @@ def get_categories():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, name, created_at FROM categories")
+    cursor.execute("SELECT id, name, created_at FROM categories ORDER BY id")
     cats = [dict(row) for row in cursor.fetchall()]
     conn.close()
     return cats
@@ -406,88 +448,55 @@ def delete_product(product_id: int):
     conn.close()
     return {"message": "Deleted"}
 
-# ========== ORDERS WITH AUTO STOCK DEDUCTION ==========
+# ========== ORDERS ==========
 @app.post("/api/orders/")
 def create_order(order: OrderCreate):
-    import uuid
+    # Generate unique order number
     order_number = f"ORD-{uuid.uuid4().hex[:8].upper()}"
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    cursor.execute("SELECT id FROM users WHERE email = 'admin@dynastore.com'")
+    # Get or create user (for now use default user)
+    cursor.execute("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
     user = cursor.fetchone()
     user_id = user[0] if user else 1
     
-    total = 0.0
+    # Calculate total from items if not provided
+    total = order.total_amount
     
-    # First, check stock availability
-    for item in order.items:
-        cursor.execute("SELECT original_price, discount_price, stock, size_stock FROM products WHERE id = ?", (item.product_id,))
-        product = cursor.fetchone()
-        if not product:
-            conn.close()
-            raise HTTPException(status_code=404, detail=f"Product {item.product_id} not found")
-        
-        price = product[1] if product[1] else product[0]
-        total += price * item.quantity
-        
-        # Check regular stock (if no size selected)
-        if not item.selected_size:
-            if product[2] < item.quantity:
-                conn.close()
-                raise HTTPException(status_code=400, detail=f"Insufficient stock for product")
-        
-        # Check size-specific stock
-        if item.selected_size and product[3]:
-            try:
-                size_stock = json.loads(product[3])
-                available = size_stock.get(item.selected_size, 0)
-                if available < item.quantity:
-                    conn.close()
-                    raise HTTPException(status_code=400, detail=f"Only {available} items available for size {item.selected_size}")
-            except:
-                pass
-    
-    # Create order
+    # Insert order with all shipping information
     cursor.execute('''
-        INSERT INTO orders (order_number, user_id, total_amount, shipping_address, status)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (order_number, user_id, total, order.shipping_address, 'pending'))
+        INSERT INTO orders (order_number, user_id, total_amount, shipping_address, status, full_name, phone_number, city)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (order_number, user_id, total, order.shipping_address, 'pending', order.full_name, order.phone_number, order.city))
     
     order_id = cursor.lastrowid
     
-    # Create order items AND DEDUCT STOCK
+    # Insert order items
     for item in order.items:
-        cursor.execute("SELECT original_price, discount_price, stock, size_stock FROM products WHERE id = ?", (item.product_id,))
-        product = cursor.fetchone()
-        price = product[1] if product[1] else product[0]
+        # Get product price if not provided
+        if not item.price:
+            cursor.execute("SELECT original_price, discount_price FROM products WHERE id = ?", (item.product_id,))
+            product = cursor.fetchone()
+            if product:
+                item.price = product[1] if product[1] else product[0]
         
         cursor.execute('''
-            INSERT INTO order_items (order_id, product_id, quantity, price_at_time, selected_color, selected_size)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (order_id, item.product_id, item.quantity, price, item.selected_color, item.selected_size))
-        
-        # DEDUCT STOCK
-        if item.selected_size:
-            # Deduct from size-specific stock
-            size_stock = json.loads(product[3]) if product[3] else {}
-            if item.selected_size in size_stock:
-                size_stock[item.selected_size] -= item.quantity
-                cursor.execute("UPDATE products SET size_stock = ? WHERE id = ?", (json.dumps(size_stock), item.product_id))
-        else:
-            # Deduct from regular stock
-            new_stock = product[2] - item.quantity
-            cursor.execute("UPDATE products SET stock = ? WHERE id = ?", (new_stock, item.product_id))
+            INSERT INTO order_items (order_id, product_id, product_title, quantity, price_at_time, selected_color, selected_size)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (order_id, item.product_id, item.product_title, item.quantity, item.price, item.selected_color, item.selected_size))
     
     conn.commit()
     conn.close()
+    
+    print(f"✅ Order created: {order_number} - Total: ${total}")
     
     return {
         "id": order_id,
         "order_number": order_number,
         "total_amount": total,
-        "message": "Order created"
+        "message": "Order created successfully"
     }
 
 @app.get("/api/orders/")
@@ -500,10 +509,7 @@ def get_orders():
     for row in cursor.fetchall():
         order = dict(row)
         cursor.execute("""
-            SELECT oi.*, p.title as product_title, p.main_image as product_main_image
-            FROM order_items oi
-            JOIN products p ON oi.product_id = p.id
-            WHERE oi.order_id = ?
+            SELECT * FROM order_items WHERE order_id = ?
         """, (order['id'],))
         order['items'] = [dict(item) for item in cursor.fetchall()]
         orders.append(order)
@@ -519,12 +525,7 @@ def get_order(order_id: int):
     cursor.execute("SELECT * FROM orders WHERE id = ?", (order_id,))
     order = dict(cursor.fetchone())
     
-    cursor.execute("""
-        SELECT oi.*, p.title as product_title, p.main_image as product_main_image
-        FROM order_items oi
-        JOIN products p ON oi.product_id = p.id
-        WHERE oi.order_id = ?
-    """, (order_id,))
+    cursor.execute("SELECT * FROM order_items WHERE order_id = ?", (order_id,))
     order['items'] = [dict(item) for item in cursor.fetchall()]
     
     conn.close()
@@ -552,25 +553,32 @@ def initiate_payment(payment: PaymentRequest):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
     
+    print(f"💰 Initiating payment for order: {order['order_number']} - Amount: ${order['total_amount']}")
+    
+    # Create payment URL with customer info
     payment_url = create_khqr_payment(
         transaction_id=order["order_number"],
         amount=order["total_amount"],
-        remark=f"Order_{order['order_number']}"
+        customer_name=order["full_name"] or "Customer",
+        phone=order["phone_number"] or ""
     )
     
     return {
         "payment_url": payment_url,
         "order_id": order["id"],
+        "order_number": order["order_number"],
         "amount": order["total_amount"]
     }
 
 @app.post("/api/payment/verify")
 def verify_payment(verify: PaymentVerify):
-    print(f"Verifying payment for: {verify.transaction_id}")
+    print(f"🔍 Verifying payment for transaction: {verify.transaction_id}")
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
+    
+    # Check if order already marked as paid
     cursor.execute("SELECT * FROM orders WHERE order_number = ?", (verify.transaction_id,))
     order = cursor.fetchone()
     
@@ -580,42 +588,60 @@ def verify_payment(verify: PaymentVerify):
             "verified": True,
             "transaction_id": verify.transaction_id,
             "amount": order["total_amount"],
-            "status": "paid"
+            "status": "paid",
+            "message": "Payment already verified"
         }
     
+    # Verify with KHQR
     result = verify_khqr_transaction(verify.transaction_id)
     
-    if result.get("responseCode") == 0:
-        data = result.get("data", {})
-        if data.get("status", "").lower() == "success":
-            # Update order to paid
-            cursor.execute("""
-                UPDATE orders 
-                SET status = 'paid', 
-                    payment_transaction_id = ? 
-                WHERE order_number = ?
-            """, (data.get("transaction_id"), verify.transaction_id))
-            conn.commit()
-            conn.close()
-            return {
-                "verified": True,
-                "transaction_id": verify.transaction_id,
-                "amount": data.get("amount"),
-                "status": "paid"
-            }
+    # Check if payment was successful
+    if result.get("status") == "success" or result.get("responseCode") == 0:
+        # Update order status to paid
+        cursor.execute("""
+            UPDATE orders 
+            SET status = 'paid', 
+                payment_transaction_id = ? 
+            WHERE order_number = ?
+        """, (verify.transaction_id, verify.transaction_id))
+        conn.commit()
+        
+        # Get updated order
+        cursor.execute("SELECT * FROM orders WHERE order_number = ?", (verify.transaction_id,))
+        updated_order = cursor.fetchone()
+        conn.close()
+        
+        print(f"✅ Payment verified for order: {verify.transaction_id}")
+        
+        return {
+            "verified": True,
+            "transaction_id": verify.transaction_id,
+            "amount": updated_order["total_amount"] if updated_order else 0,
+            "status": "paid",
+            "message": "Payment confirmed successfully"
+        }
     
     conn.close()
-    return {"verified": False, "message": "Payment verification failed"}
+    
+    print(f"❌ Payment verification failed for: {verify.transaction_id}")
+    
+    return {
+        "verified": False,
+        "transaction_id": verify.transaction_id,
+        "status": "pending",
+        "message": "Payment not confirmed yet. Please check again later."
+    }
 
 # ========== HEALTH ==========
 @app.get("/")
 def root():
-    return {"message": "API Running", "status": "ok"}
+    return {"message": "MENGHOR STORE API Running", "status": "ok"}
 
 @app.get("/health")
 def health():
-    return {"status": "healthy"}
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

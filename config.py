@@ -14,8 +14,8 @@ class Config:
     UPLOAD_DIR = "uploads/products"
 
     # KHQR Payment
-    KHQR_PROFILE_ID   = os.getenv("KHQR_PROFILE_ID",   "4CT8AuGLx8OkUhCqNdKJhekxw2LULqYa")
-    KHQR_SECRET_KEY   = os.getenv("KHQR_SECRET_KEY",   "b24Cjg6lKKiOUzFa21yLz8c6AvoyaPyH")
+    KHQR_PROFILE_ID   = os.getenv("KHQR_PROFILE_ID",   "Y0xL0p6WlNruUhlnj51p4c7TYtT6wDQ4")
+    KHQR_SECRET_KEY   = os.getenv("KHQR_SECRET_KEY",   "fTh93txXT8eqqhgn3cKbOuekASFkbxWx")
     KHQR_GATEWAY_URL  = os.getenv("KHQR_GATEWAY_URL",  "https://khqr.cc/api/payment/request")
     KHQR_VERIFY_URL   = os.getenv("KHQR_VERIFY_URL",   "https://khqr.cc/api/4CT8AuGLx8OkUhCqNdKJhekxw2LULqYa/payment-gateway/v1/payments/check-trans")
     KHQR_SUCCESS_URL  = os.getenv("KHQR_SUCCESS_URL",  "https://backend-ecommerce-6hef.onrender.com")
